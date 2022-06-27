@@ -1,4 +1,4 @@
 """Consts for the integration."""
 
-DOMAIN = "<integration_domain>"
+DOMAIN = "tuya_smart_watering"
 UPDATE_LISTENER = "update_listener"

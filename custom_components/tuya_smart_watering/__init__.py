@@ -1,4 +1,4 @@
-"""Integration Name component."""
+"""Tuya Smart Watering component."""
 
 from __future__ import annotations
 

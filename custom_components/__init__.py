@@ -1,1 +1,1 @@
-"""<Integration name> package."""
+"""tuya_smart_watering package."""
