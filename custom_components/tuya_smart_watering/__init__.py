@@ -2,18 +2,21 @@
 
 from __future__ import annotations
 
-import aiohttp
+from datetime import datetime
+from functools import cached_property
 import json
 import logging
+from typing import Literal
+import uuid
 
+import aiohttp
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import Platform
+from homeassistant.const import CONF_DEVICE, CONF_ID, CONF_TOKEN, URL_API, Platform
 from homeassistant.core import HomeAssistant
-
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-
-from .const import DOMAIN, UPDATE_LISTENER, DATA_MODE, DATA_SWITCH, DATA_COOLDOWN
+from .const import DATA_COOLDOWN, DATA_MODE, DATA_SWITCH, DOMAIN, UPDATE_LISTENER
+from .signature import Signature
 
 PLATFORMS: list[Platform] = [Platform.SWITCH, Platform.SELECT]
 _LOGGER = logging.getLogger(__name__)
@@ -40,6 +43,7 @@ async def async_setup_entry(
         hass=hass,
         logger=_LOGGER,
         name=f"{DOMAIN}_updater",
+        config_entry=config_entry,
     )
 
     await hass.data[DOMAIN][config_entry.unique_id].async_config_entry_first_refresh()
@@ -70,25 +74,101 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 class DataUpdater(DataUpdateCoordinator):
     """Data Updater for the integration."""
 
-    @property
+    __token_expire: float
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        logger: logging.Logger,
+        *,
+        name: str,
+        config_entry: ConfigEntry,
+    ):
+        """Initialize updater."""
+        super().__init__(hass, logger, name=name)
+        self._config_entry = config_entry
+        self.__access_token = None
+        self.__token_expire = 0
+
+    @cached_property
+    def config(self) -> dict:
+        """Return the configuration."""
+        config = dict(self._config_entry.data)
+        config.update(self._config_entry.options)
+        return config
+
+    @cached_property
     def device_id(self) -> str:
-        raise NotImplementedError
+        """Tuya device ID."""
+        return self.config[CONF_DEVICE]
 
-    @property
+    @cached_property
     def client_id(self) -> str:
-        raise NotImplementedError
+        """Tuya API client ID."""
+        return self.config[CONF_ID]
 
-    @property
+    @cached_property
     def server(self) -> str:
-        raise NotImplementedError
+        """Tuya API server name."""
+        return self.config[URL_API]
 
-    @property
-    def _access_token(self):
-        raise NotImplementedError
+    @cached_property
+    def _secret(self):
+        """Tuya API secret."""
+        return self.config[CONF_TOKEN]
+
+    def headers(
+        self,
+        url: str,
+        access_token: str = "",
+        method: Literal["GET", "PUT", "POST"] = "GET",
+    ):
+        """Headers for request."""
+        now = int(datetime.utcnow().timestamp())
+        s = Signature()
+        return {
+            "client_id": self.client_id,
+            "t": now,
+            "sign_method": "HMAC-SHA256",
+            "mode": "cors",
+            "Content-Type": "application/json",
+            "sign": s.get_sign(
+                access_token=access_token,
+                client_id=self.client_id,
+                method=method,
+                timestamp=now,
+                uuid=uuid.uuid4().hex,
+                secret=self._secret,
+                request=url,
+            ),
+            "access_token": access_token,
+        }
+
+    async def _access_token(self):
+        """Get access token for request."""
+
+        if datetime.utcnow().timestamp() < self.__token_expire:
+            return self.__access_token
+
+        url = f"https://{self.server}/v1.0/token?grant_type=1&terminal_id=100"
+        timeout = aiohttp.ClientTimeout(total=20)
+
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            response = await self.request(
+                session=session,
+                url=url,
+            )
+            if response["success"]:
+                r = response["result"]
+                self.__access_token = r["access_token"]
+                self.__token_expire = r["expire_time"] + datetime.utcnow().timestamp()
+                return self.__access_token
+            _LOGGER.critical(f"Could not update token: {response}")
+            raise RuntimeError
 
     @staticmethod
     def map_code_value(data: dict) -> dict:
-        """Map list with coded values to dict"""
+        """Map list with coded values to dict."""
         result = {}
         for element in data:
             result[element["code"]] = element["value"]
@@ -99,62 +179,29 @@ class DataUpdater(DataUpdateCoordinator):
 
         timeout = aiohttp.ClientTimeout(total=20)
         async with aiohttp.ClientSession(timeout=timeout) as session:
-            response = await self.request(
-                session=session,
-                url=f"https://{self.server}/v1.0/devices/{self.device_id}/status"
-            )
-            r = self.map_code_value(json.loads(response)["result"])
+            url = f"https://{self.server}/v1.0/devices/{self.device_id}/status"
+            r = self.map_code_value(
+                await self.request(
+                    session=session,
+                    url=url,
+                    access_token=(await self._access_token()),
+                )
+            )["result"]
             return {
                 DATA_SWITCH: r["switch"],
                 DATA_MODE: r["mode"],
                 DATA_COOLDOWN: r["temp_set"],
             }
-    @staticmethod
-    def encrypt(data: str = ""):
-        if data == "":
-            return "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-        return sha256(data)
-
-    def get_sign(self, data) -> str:
-        # https://developer.tuya.com/en/docs/iot/singnature?id=Ka43a5mtx1gsc
-        data.update({
-            "method": "GET"
-        })
-        stringToSign = f"{data["client_id"]}{data["t"]}{self.uuid}GET" \
-                       "{self.encrypt(data='')}"
-        
-        return "4A89B047504BEF31798E6172242A34C31A10AF5B1AF518CD3D0957CEB213510B"
-
-    @property
-    def _headers(self) -> dict:
-        headers = {
-                   "sign_method": "HMAC-SHA256",
-                   "client_id": self.client_id,
-                   "t": 1656350916747,
-                   "mode": "cors",
-                   "Content-Type": "application/json",
-                   "access_token": self._access_token,
-        }
-        headers.update({"sign": self.get_sign(headers)})
-        return headers
 
     async def request(
-        self,
-        session: aiohttp.ClientSession,
-        url: str,
-    ):
-        """
-        Make request to API endpoint.
-
-        :param session: aiohttp.ClientSession: HTTP session for request
-        :param url: url to query
-
-        :returns: dict with response data
-        :raises AssertionError: when response.status is not 200
-        """
-
+        self, session: aiohttp.ClientSession, url: str, access_token: str = ""
+    ) -> dict:
+        """Make request to API."""
         _LOGGER.info(f"Sending API request to {url}")
-        async with session.get(url, headers=self._headers) as response:
+
+        async with session.get(
+            url, headers=self.headers(url=url, access_token=access_token)
+        ) as response:
             try:
                 assert response.status == 200
                 _LOGGER.debug(f"{await response.text()}")
@@ -162,4 +209,4 @@ class DataUpdater(DataUpdateCoordinator):
                 _LOGGER.error(f"Could not get data from API: {response}")
                 raise aiohttp.ClientError(response.status, await response.text()) from e
 
-            return await response.text()
+            return json.loads(await response.text())
