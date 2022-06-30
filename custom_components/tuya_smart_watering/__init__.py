@@ -93,12 +93,7 @@ class DataUpdater(DataUpdateCoordinator):
         config.update(self._config_entry.options)
         return config
 
-    @cached_property
-    def device_id(self) -> str:
-        """Tuya device ID."""
-        return self.config[CONF_DEVICE]
-
     async def _async_update_data(self) -> dict:
         """Fetch the latest data from the source."""
 
-        return await self._tuya.status(self.device_id)
+        return await self._tuya.status(self.config[CONF_DEVICE])
