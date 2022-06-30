@@ -6,14 +6,23 @@ from functools import cached_property
 import logging
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_DEVICE, CONF_ID, CONF_TOKEN, URL_API, Platform
+from homeassistant.const import (
+    CONF_DEVICE,
+    CONF_ID,
+    CONF_NAME,
+    CONF_TOKEN,
+    URL_API,
+    Platform,
+)
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.device_registry import DeviceEntryType
+from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import DOMAIN, UPDATE_LISTENER
 from .tuya_api import TuyaApi
 
-PLATFORMS: list[Platform] = [Platform.SWITCH, Platform.SELECT]
+PLATFORMS: list[Platform] = [Platform.SWITCH, Platform.SELECT, Platform.NUMBER]
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -80,7 +89,7 @@ class DataUpdater(DataUpdateCoordinator):
         """Initialize updater."""
         super().__init__(hass, logger, name=name)
         self._config_entry = config_entry
-        self._tuya = TuyaApi(
+        self.tuya = TuyaApi(
             client_id=self.config[CONF_ID],
             secret=self.config[CONF_TOKEN],
             server=self.config[URL_API],
@@ -96,4 +105,14 @@ class DataUpdater(DataUpdateCoordinator):
     async def _async_update_data(self) -> dict:
         """Fetch the latest data from the source."""
 
-        return await self._tuya.status(self.config[CONF_DEVICE])
+        return await self.tuya.status(self.config[CONF_DEVICE])
+
+    @property
+    def device_info(self):
+        """Device info."""
+        return DeviceInfo(
+            entry_type=DeviceEntryType.SERVICE,
+            identifiers={(DOMAIN, self.config[CONF_DEVICE])},
+            manufacturer="Tuya",
+            name=self.config[CONF_NAME],
+        )

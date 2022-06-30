@@ -1,6 +1,7 @@
 """API for Tuya services."""
 
 from datetime import datetime
+from functools import cache
 import json
 import logging
 from typing import Literal
@@ -129,3 +130,16 @@ class TuyaApi:
             DATA_MODE: r["mode"],
             DATA_COOLDOWN: r["temp_set"],
         }
+
+    @cache
+    async def schema(self, device_id: str):
+        """Device data schema layout."""
+        async with aiohttp.ClientSession(timeout=self._timeout) as session:
+            return (
+                await self.request(
+                    session=session,
+                    server=f"https://{self.server}",
+                    request=f"/v1.0/iot-03/devices/{device_id}/specification",
+                    access_token=(await self._access_token()),
+                )
+            )["status"]
