@@ -13,8 +13,9 @@ class Signature:
             return "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         return sha256(data.encode("utf-8")).hexdigest()
 
+    @classmethod
     def get_sign(
-        self,
+        cls,
         client_id: str,
         secret: str,
         timestamp: int,
@@ -31,7 +32,7 @@ class Signature:
             parameters = {}
 
         string = (
-            f"{client_id}{access_token}{timestamp}{uuid}{method}\n{self._encrypt(body)}"
+            f"{client_id}{access_token}{timestamp}{uuid}{method}\n{cls._encrypt(body)}"
         )
         for k, v in parameters.items():
             string += f"\n{k}:{v}"

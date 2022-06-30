@@ -1,7 +1,7 @@
 """Test for Tuya signing."""
 import pytest
 
-from custom_components.tuya_smart_watering.signature import Signature
+from custom_components.tuya_smart_watering.tuya_api import Signature
 
 
 @pytest.mark.parametrize(
@@ -24,9 +24,8 @@ def test_signature(
     client_id, secret, timestamp, uuid, method, parameters, access_token, query, result
 ):
     """Test signature generation."""
-    s = Signature()
     assert (
-        s.get_sign(
+        Signature.get_sign(
             client_id=client_id,
             secret=secret,
             timestamp=timestamp,
