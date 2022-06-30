@@ -4,7 +4,6 @@ from datetime import datetime
 import json
 import logging
 from typing import Literal
-import uuid
 
 import aiohttp
 
@@ -28,32 +27,64 @@ class TuyaApi:
         self.__access_token: str | None = None
         self.__token_expire = 0
 
+        self._timeout = aiohttp.ClientTimeout(total=20)
+
     def headers(
         self,
-        url: str,
+        request: str,
         access_token: str = "",
         method: Literal["GET", "PUT", "POST"] = "GET",
     ):
         """Headers for request."""
-        now = int(datetime.utcnow().timestamp())
-        s = Signature()
+        now = int(datetime.now().timestamp() * 1000)
+
         return {
             "client_id": self.client_id,
-            "t": now,
+            "t": str(now),
             "sign_method": "HMAC-SHA256",
             "mode": "cors",
             "Content-Type": "application/json",
-            "sign": s.get_sign(
+            "sign": Signature.get_sign(
                 access_token=access_token,
                 client_id=self.client_id,
                 method=method,
                 timestamp=now,
-                uuid=uuid.uuid4().hex,
+                uuid="",
                 secret=self._secret,
-                request=url,
+                request=request,
             ),
             "access_token": access_token,
         }
+
+    async def request(
+        self,
+        session: aiohttp.ClientSession,
+        server: str,
+        request: str,
+        access_token: str = "",
+    ) -> dict:
+        """Make request to API."""
+        url = f"{server}{request}"
+        _LOGGER.info(f"Sending API request to {url}")
+
+        async with session.get(
+            url=url,
+            headers=self.headers(request=request, access_token=access_token),
+        ) as response:
+            try:
+                assert response.status == 200
+                _LOGGER.debug(f"{await response.text()}")
+            except AssertionError as e:
+                _LOGGER.error(f"Could not get data from API: {response}")
+                raise aiohttp.ClientError(response.status, await response.text()) from e
+
+            result = json.loads(await response.text())
+            if result["success"]:
+                return result["result"]
+            else:
+                _LOGGER.critical(f"Could not update token: {response}")
+                print(result)
+                raise RuntimeError(result["msg"])
 
     async def _access_token(self):
         """Get access token for request."""
@@ -61,21 +92,17 @@ class TuyaApi:
         if datetime.utcnow().timestamp() < self.__token_expire:
             return self.__access_token
 
-        url = f"https://{self.server}/v1.0/token?grant_type=1&terminal_id=100"
-        timeout = aiohttp.ClientTimeout(total=20)
-
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with aiohttp.ClientSession(timeout=self._timeout) as session:
             response = await self.request(
                 session=session,
-                url=url,
+                server=f"https://{self.server}",
+                request="/v1.0/token?grant_type=1&terminal_id=100",
             )
-            if response["success"]:
-                r = response["result"]
-                self.__access_token = r["access_token"]
-                self.__token_expire = r["expire_time"] + datetime.utcnow().timestamp()
-                return self.__access_token
-            _LOGGER.critical(f"Could not update token: {response}")
-            raise RuntimeError
+            self.__access_token = response["access_token"]
+            self.__token_expire = (
+                response["expire_time"] + datetime.utcnow().timestamp()
+            )
+            return self.__access_token
 
     @staticmethod
     def map_code_value(data: dict) -> dict:
@@ -85,37 +112,18 @@ class TuyaApi:
             result[element["code"]] = element["value"]
         return result
 
-    async def request(
-        self, session: aiohttp.ClientSession, url: str, access_token: str = ""
-    ) -> dict:
-        """Make request to API."""
-        _LOGGER.info(f"Sending API request to {url}")
-
-        async with session.get(
-            url=url, headers=self.headers(url=url, access_token=access_token)
-        ) as response:
-            try:
-                assert response.status == 200
-                _LOGGER.debug(f"{await response.text()}")
-            except AssertionError as e:
-                _LOGGER.error(f"Could not get data from API: {response}")
-                raise aiohttp.ClientError(response.status, await response.text()) from e
-
-            return json.loads(await response.text())
-
     async def status(self, device_id: str):
         """Get status of device."""
 
-        timeout = aiohttp.ClientTimeout(total=20)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            url = f"https://{self.server}/v1.0/devices/{device_id}/status"
+        async with aiohttp.ClientSession(timeout=self._timeout) as session:
             r = self.map_code_value(
                 await self.request(
                     session=session,
-                    url=url,
+                    server=f"https://{self.server}",
+                    request=f"/v1.0/iot-03/devices/{device_id}/status",
                     access_token=(await self._access_token()),
                 )
-            )["result"]
+            )
         return {
             DATA_SWITCH: r["switch"],
             DATA_MODE: r["mode"],
