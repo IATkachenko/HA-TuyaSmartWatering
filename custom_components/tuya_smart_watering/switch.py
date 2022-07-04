@@ -41,7 +41,7 @@ async def async_setup_entry(
 
     entities: list[TuyaSmartWateringSwitch] = [
         TuyaSmartWateringSwitch(
-            unique_id="{config_entry.unique_id}-{description.key}",
+            unique_id=f"{config_entry.unique_id}-{description.key}",
             updater=updater,
             description=description,
         )
@@ -52,16 +52,10 @@ async def async_setup_entry(
 
 class TuyaSmartWateringSwitch(SwitchEntity, CoordinatorEntity):
     def turn_off(self, **kwargs: Any) -> None:
-        pass
+        self.coordinator.turn_off()
 
     def turn_on(self, **kwargs: Any) -> None:
-        pass
-
-    async def async_turn_on(self, **kwargs: Any) -> None:
-        pass
-
-    async def async_turn_off(self, **kwargs: Any) -> None:
-        pass
+        self.coordinator.turn_on()
 
     def __init__(
         self, unique_id: str, updater: DataUpdater, description: SwitchEntityDescription
@@ -71,6 +65,10 @@ class TuyaSmartWateringSwitch(SwitchEntity, CoordinatorEntity):
         self.entity_description = description
         self._attr_unique_id = unique_id
         self._attr_device_info = self.coordinator.device_info
+
+    async def async_added_to_hass(self) -> None:
+        await CoordinatorEntity.async_added_to_hass(self)
+        self._handle_coordinator_update()
 
     def _handle_coordinator_update(self) -> None:
         self._attr_is_on = self.coordinator.data.get(self.entity_description.key)

@@ -40,7 +40,7 @@ async def async_setup_entry(
 
     entities: list[TuyaSmartWateringNumber] = [
         TuyaSmartWateringNumber(
-            unique_id="{config_entry.unique_id}-{description.key}",
+            unique_id=f"{config_entry.unique_id}-{description.key}",
             updater=updater,
             description=description,
         )
@@ -53,7 +53,7 @@ class TuyaSmartWateringNumber(NumberEntity, CoordinatorEntity):
     coordinator: DataUpdater
 
     def set_value(self, value: float) -> None:
-        pass
+        self.coordinator.set_cooldown(value)
 
     def __init__(
         self, unique_id: str, updater: DataUpdater, description: NumberEntityDescription
@@ -65,12 +65,16 @@ class TuyaSmartWateringNumber(NumberEntity, CoordinatorEntity):
         self._attr_device_info = self.coordinator.device_info
         self._attr_mode = NumberMode.BOX
         self._attr_value = 0
-        for i in self.coordinator.tuya.schema:
+        for i in self.coordinator.specification:
             if i["code"] == self.entity_description.key:
                 self._attr_step = float(i["values"]["step"])
                 self._attr_max_value = float(i["values"]["max"])
                 self._attr_min_value = float(i["values"]["min"])
                 self._attr_unit_of_measurement = i["values"]["unit"]
+
+    async def async_added_to_hass(self) -> None:
+        await CoordinatorEntity.async_added_to_hass(self)
+        self._handle_coordinator_update()
 
     def _handle_coordinator_update(self) -> None:
         self._attr_value = float(self.coordinator.data.get(self.entity_description.key))

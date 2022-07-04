@@ -12,7 +12,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import DataUpdater
-from .const import DATA_MODE, DOMAIN, UPDATER
+from .const import DATA_MODE, DOMAIN, UPDATER, DATA_PUMP
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -22,6 +22,13 @@ SELECTS: tuple[SelectEntityDescription, ...] = (
         name="Mode",
         device_class="",
         entity_registry_enabled_default=True,
+    ),
+    SelectEntityDescription(
+        key=DATA_PUMP,
+        name="Pump",
+        device_class="",
+        entity_registry_enabled_default=True,
+        icon="mdi:water-pump"
     ),
 )
 
@@ -37,7 +44,7 @@ async def async_setup_entry(
 
     entities: list[TuyaSmartWateringSelect] = [
         TuyaSmartWateringSelect(
-            unique_id="{config_entry.unique_id}-{description.key}",
+            unique_id=f"{config_entry.unique_id}-{description.key}",
             updater=updater,
             description=description,
         )
@@ -50,10 +57,10 @@ class TuyaSmartWateringSelect(SelectEntity, CoordinatorEntity):
     coordinator: DataUpdater
 
     def select_option(self, option: str) -> None:
-        pass
-
-    async def async_select_option(self, option: str) -> None:
-        pass
+        if self.entity_description.key == DATA_MODE:
+            self.coordinator.set_mode(option)
+        elif self.entity_description.key == DATA_PUMP:
+            self.coordinator.set_pump(option)
 
     def __init__(
         self, unique_id: str, updater: DataUpdater, description: SelectEntityDescription
@@ -65,11 +72,19 @@ class TuyaSmartWateringSelect(SelectEntity, CoordinatorEntity):
         self._attr_device_info = self.coordinator.device_info
         self._attr_options = []
         self._attr_current_option = None
-        for i in self.coordinator.tuya.schema:
-            if i["code"] == self.entity_description.key:
-                _LOGGER.debug(f"select init: {i=}")
-                self._attr_options = json.loads(i["values"])["range"]
-                break
+        _LOGGER.debug(f"Setting up {self.entity_description.key=}, {self.unique_id=}")
+        if self.entity_description.key == DATA_MODE:
+            for i in self.coordinator.specification:
+                if i["code"] == self.entity_description.key:
+                    _LOGGER.debug(f"select init: {i=}")
+                    self._attr_options = json.loads(i["values"])["range"]
+                    break
+        elif self.entity_description.key == DATA_PUMP:
+            self._attr_options = ["PumpA", "PumpB", "PumpAB"]
+
+    async def async_added_to_hass(self) -> None:
+        await CoordinatorEntity.async_added_to_hass(self)
+        self._handle_coordinator_update()
 
     def _handle_coordinator_update(self) -> None:
         self._attr_current_option = self.coordinator.data.get(
