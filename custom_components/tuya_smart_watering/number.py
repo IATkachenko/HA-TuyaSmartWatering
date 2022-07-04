@@ -4,18 +4,15 @@ from __future__ import annotations
 
 import logging
 
-from homeassistant.components.number import (
-    NumberEntity,
-    NumberEntityDescription,
-    NumberMode,
-)
+from homeassistant.components.number import (NumberEntity, NumberEntityDescription, NumberMode, ENTITY_ID_FORMAT, )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import async_generate_entity_id
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import DataUpdater
-from .const import DATA_COOLDOWN, DOMAIN, UPDATER
+from .const import DATA_COOLDOWN, DOMAIN, UPDATER, DATA_ONLINE
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -25,6 +22,7 @@ NUMBERS: tuple[NumberEntityDescription, ...] = (
         name="Cooldown",
         device_class="",
         entity_registry_enabled_default=True,
+        icon="mdi:timer",
     ),
 )
 
@@ -65,6 +63,12 @@ class TuyaSmartWateringNumber(NumberEntity, CoordinatorEntity):
         self._attr_device_info = self.coordinator.device_info
         self._attr_mode = NumberMode.BOX
         self._attr_value = 0
+        self._attr_name = f"{self.coordinator.name} {self.entity_description.name}"
+        self.entity_id = async_generate_entity_id(
+            ENTITY_ID_FORMAT,
+            f"{self.coordinator.name}_{self.entity_description.name}",
+            hass=self.coordinator.hass,
+        )
         for i in self.coordinator.specification:
             if i["code"] == self.entity_description.key:
                 self._attr_step = float(i["values"]["step"])
@@ -79,3 +83,7 @@ class TuyaSmartWateringNumber(NumberEntity, CoordinatorEntity):
     def _handle_coordinator_update(self) -> None:
         self._attr_value = float(self.coordinator.data.get(self.entity_description.key))
         self.async_write_ha_state()
+
+    @property
+    def available(self) -> bool:
+        return self.coordinator.data.get(DATA_ONLINE, False)

@@ -5,14 +5,15 @@ from __future__ import annotations
 import json
 import logging
 
-from homeassistant.components.select import SelectEntity, SelectEntityDescription
+from homeassistant.components.select import SelectEntity, SelectEntityDescription, ENTITY_ID_FORMAT
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import async_generate_entity_id
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import DataUpdater
-from .const import DATA_MODE, DOMAIN, UPDATER, DATA_PUMP
+from .const import DATA_MODE, DOMAIN, UPDATER, DATA_PUMP, DATA_ONLINE
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -72,6 +73,12 @@ class TuyaSmartWateringSelect(SelectEntity, CoordinatorEntity):
         self._attr_device_info = self.coordinator.device_info
         self._attr_options = []
         self._attr_current_option = None
+        self._attr_name = f"{self.coordinator.name} {self.entity_description.name}"
+        self.entity_id = async_generate_entity_id(
+            ENTITY_ID_FORMAT,
+            f"{self.coordinator.name}_{self.entity_description.name}",
+            hass=self.coordinator.hass,
+        )
         _LOGGER.debug(f"Setting up {self.entity_description.key=}, {self.unique_id=}")
         if self.entity_description.key == DATA_MODE:
             for i in self.coordinator.specification:
@@ -91,3 +98,7 @@ class TuyaSmartWateringSelect(SelectEntity, CoordinatorEntity):
             self.entity_description.key
         )
         self.async_write_ha_state()
+
+    @property
+    def available(self) -> bool:
+        return self.coordinator.data.get(DATA_ONLINE, False)

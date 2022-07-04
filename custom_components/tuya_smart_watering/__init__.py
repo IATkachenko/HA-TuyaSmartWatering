@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+from asyncio import Future
+
 from homeassistant.exceptions import ConfigEntryNotReady
 
 from tuya_iot import TuyaOpenAPI, TuyaOpenMQ, AuthType, TUYA_LOGGER
@@ -23,7 +26,7 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.components.tuya import DOMAIN as TUYA_DOMAIN
 
-from .const import DOMAIN, UPDATE_LISTENER, UPDATER, DATA_SWITCH, DATA_MODE, DATA_COOLDOWN, DATA_PUMP
+from .const import DOMAIN, UPDATE_LISTENER, UPDATER, DATA_SWITCH, DATA_MODE, DATA_COOLDOWN, DATA_PUMP, DATA_ONLINE
 
 PLATFORMS: list[Platform] = [Platform.SWITCH, Platform.SELECT, Platform.NUMBER]
 _LOGGER = logging.getLogger(__name__)
@@ -67,7 +70,7 @@ async def async_setup_entry(
     updater = DataUpdater(
             hass=hass,
             logger=_LOGGER,
-            name=f"{DOMAIN}_updater",
+            name=config[CONF_NAME],
             config_entry=config_entry,
             api=tuya_api_instance,
     )
@@ -117,6 +120,7 @@ class DataUpdater(DataUpdateCoordinator):
         self._config_entry = config_entry
         self._api = api
         self._specification = {}
+        self.data = {}
 
         hass.async_add_executor_job(
             self._api.get,
@@ -128,22 +132,37 @@ class DataUpdater(DataUpdateCoordinator):
             f"/v1.0/iot-03/devices/{self.config[CONF_DEVICE]}/status",
         ).add_done_callback(self.set_initial_data)
 
-    def set_specification(self, specification):
+        hass.async_add_executor_job(
+            self._api.get,
+            f"/v1.1/iot-03/devices/{self.config[CONF_DEVICE]}",
+        ).add_done_callback(self.set_initial_state)
+
+    def set_initial_state(self, state: Future):
+        state = state.result()
+        try:
+            self.data[DATA_ONLINE] = state["result"]["online"]
+            self.async_set_updated_data(self.data)
+        except KeyError:
+            _LOGGER.critical(f"KeyError in set_initial_state with {state=}")
+
+    def set_specification(self, specification: Future):
         self._specification = specification.result()["result"]["status"]
 
-    def set_initial_data(self, data):
+    def set_initial_data(self, data: Future):
         mapped_data = {}
         data = data.result()["result"]
         for element in data:
             mapped_data[element["code"]] = element["value"]
-
+        initial_data = self.data
         result = {
             DATA_SWITCH: mapped_data["switch"],
             DATA_MODE: mapped_data["mode"],
             DATA_COOLDOWN: mapped_data["temp_set"],
             DATA_PUMP: None,
         }
-        self.async_set_updated_data(result)
+
+        new_data = {**initial_data, **result}
+        self.async_set_updated_data(new_data)
 
     @property
     def specification(self) -> dict:
@@ -168,29 +187,42 @@ class DataUpdater(DataUpdateCoordinator):
 
     @callback
     def on_message(self, msg: dict):
-        _LOGGER.debug(f"{msg=}")
         if msg['data']['devId'] != self.config[CONF_DEVICE]:
-            _LOGGER.debug(f"Skipping. My device id is {self.config[CONF_DEVICE]}")
+            _LOGGER.debug(f"Skipping. This is not my update. My device id is {self.config[CONF_DEVICE]}, "
+                          f"but update for {msg['data']['devId']}")
             return
 
         data = self.data
-        for status in msg["data"]["status"]:
-            _LOGGER.debug(f"{status=}")
-            try:
-                if status["code"] == "switch":
-                    data[DATA_SWITCH] = status["value"]
-                elif status['code'] == "mode":
-                    data[DATA_MODE] = status["value"]
-                elif status['code'] == "temp_set":
-                    data[DATA_COOLDOWN] = status["value"]
-                else:
-                    _LOGGER.warning(f"Unknown code! {status=}")
-            except KeyError:
-                status: dict
-                if "56" in status.keys():
-                    data[DATA_COOLDOWN] = status["56"]
-                if "28" in status.keys():
-                    data[DATA_PUMP] = status["28"]
+        _LOGGER.debug(f"{msg=}")
+        if 'bizCode' in msg['data'].keys():
+            if msg['data']['bizCode'] == 'offline':
+                data[DATA_ONLINE] = False
+            elif msg['data']['bizCode'] == 'online':
+                data[DATA_ONLINE] = True
+        elif "status" not in msg["data"].keys():
+            _LOGGER.debug(f"Skipping: status not in keys of {msg=}.")
+            return
+
+        try:
+            for status in msg["data"]["status"]:
+                _LOGGER.debug(f"{status=}")
+                try:
+                    if status["code"] == "switch":
+                        data[DATA_SWITCH] = status["value"]
+                    elif status['code'] == "mode":
+                        data[DATA_MODE] = status["value"]
+                    elif status['code'] == "temp_set":
+                        data[DATA_COOLDOWN] = status["value"]
+                    else:
+                        _LOGGER.warning(f"Unknown code! {status=}")
+                except KeyError:
+                    status: dict
+                    if "56" in status.keys():
+                        data[DATA_COOLDOWN] = status["56"]
+                    if "28" in status.keys():
+                        data[DATA_PUMP] = status["28"]
+        except KeyError:
+            _LOGGER.warning(f"have no status in msg['data']")
 
         self.async_set_updated_data(data)
 
@@ -200,17 +232,30 @@ class DataUpdater(DataUpdateCoordinator):
         tuya_mq.add_message_listener(self.on_message)
 
     def set_pump(self, pump: str):
-        _LOGGER.debug(f"Need set {pump=}")
+        _LOGGER.debug(f"Need set {pump=}.")
+        self.send_commands(json.dumps([{"28": pump}]))
 
     def set_mode(self, mode: str):
-        _LOGGER.debug(f"Need set {mode=}")
+        _LOGGER.debug(f"Need set {mode=}.")
+        self.send_commands(json.dumps([{"code": "mode", "value": mode}]))
 
     def turn_on(self):
-        _LOGGER.debug(f"Need turn on")
+        _LOGGER.debug(f"Need turn on.")
+        self.send_commands(json.dumps([{"code": "switch", "value": True}]))
 
     def turn_off(self):
-        _LOGGER.debug(f"Need turn off")
+        _LOGGER.debug(f"Need turn off.")
+        self.send_commands(json.dumps([{"code": "switch", "value": False}]))
 
     def set_cooldown(self, cooldown: float):
         cooldown = int(cooldown)
-        _LOGGER.debug(f"Need set {cooldown=}")
+        _LOGGER.debug(f"Need set {cooldown=}.")
+        self.send_commands(json.dumps([{"code": "temp_set", "value": cooldown}]))
+
+    def send_commands(self, commands: str):
+        _LOGGER.debug(f"Sending {commands=}")
+        self.hass.async_add_executor_job(
+            self._api.post,
+            f"/v1.0/devices/{self.config[CONF_DEVICE]}/commands",
+            {"commands": commands},
+        )

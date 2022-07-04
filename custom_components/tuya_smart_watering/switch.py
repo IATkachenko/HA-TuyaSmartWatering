@@ -5,18 +5,16 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from homeassistant.components.switch import (
-    SwitchDeviceClass,
-    SwitchEntity,
-    SwitchEntityDescription,
-)
+from homeassistant.components.switch import (SwitchDeviceClass, SwitchEntity, SwitchEntityDescription,
+                                             ENTITY_ID_FORMAT, )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import async_generate_entity_id
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import DataUpdater
-from .const import DATA_SWITCH, DOMAIN, UPDATER
+from .const import DATA_SWITCH, DOMAIN, UPDATER, DATA_ONLINE
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -65,6 +63,12 @@ class TuyaSmartWateringSwitch(SwitchEntity, CoordinatorEntity):
         self.entity_description = description
         self._attr_unique_id = unique_id
         self._attr_device_info = self.coordinator.device_info
+        self._attr_name = f"{self.coordinator.name} {self.entity_description.name}"
+        self.entity_id = async_generate_entity_id(
+            ENTITY_ID_FORMAT,
+            f"{self.coordinator.name}_{self.entity_description.name}",
+            hass=self.coordinator.hass,
+        )
 
     async def async_added_to_hass(self) -> None:
         await CoordinatorEntity.async_added_to_hass(self)
@@ -73,3 +77,7 @@ class TuyaSmartWateringSwitch(SwitchEntity, CoordinatorEntity):
     def _handle_coordinator_update(self) -> None:
         self._attr_is_on = self.coordinator.data.get(self.entity_description.key)
         self.async_write_ha_state()
+
+    @property
+    def available(self) -> bool:
+        return self.coordinator.data.get(DATA_ONLINE, False)
