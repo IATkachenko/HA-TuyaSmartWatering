@@ -57,11 +57,6 @@ async def async_setup_entry(
         UPDATER: updater,
         UPDATE_LISTENER: config_entry.add_update_listener(async_update_options)
     }
-    hass.data[DOMAIN][config_entry.entry_id][UPDATER]: DataUpdater
-
-    # await updater.async_config_entry_first_refresh()
-    hass.config_entries.async_setup_platforms(config_entry, PLATFORMS)
-
     config = dict(config_entry.data)
     config.update(config_entry.options)
 
@@ -83,6 +78,9 @@ async def async_setup_entry(
         raise ConfigEntryNotReady(response)
 
     updater.setup_mq(tuya_api_instance)
+    await updater.read_current_state()
+
+    hass.config_entries.async_setup_platforms(config_entry, PLATFORMS)
     return True
 
 
@@ -124,7 +122,7 @@ class DataUpdater(DataUpdateCoordinator):
             secret=self.config[CONF_TOKEN],
             server=self.config[URL_API],
         )
-        self.async_set_updated_data((await self.tuya.status(self.config[CONF_DEVICE])))
+
 
     @cached_property
     def config(self) -> dict:
@@ -171,3 +169,6 @@ class DataUpdater(DataUpdateCoordinator):
         tuya_mq = TuyaOpenMQ(api)
         # tuya_mq.start()
         tuya_mq.add_message_listener(self.on_message)
+
+    async def read_current_state(self):
+        self.async_set_updated_data((await self.tuya.status(self.config[CONF_DEVICE])))
