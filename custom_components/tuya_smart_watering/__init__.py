@@ -124,7 +124,7 @@ class DataUpdater(DataUpdateCoordinator):
             secret=self.config[CONF_TOKEN],
             server=self.config[URL_API],
         )
-        self.data = self._async_update_data()
+        self.async_set_updated_data((await self.tuya.status(self.config[CONF_DEVICE])))
 
     @cached_property
     def config(self) -> dict:
