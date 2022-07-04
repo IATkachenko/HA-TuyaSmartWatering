@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from homeassistant.exceptions import ConfigEntryNotReady
+
+from tuya_iot import TuyaOpenAPI, TuyaOpenMQ, AuthType, TUYA_LOGGER
 from functools import cached_property
 import logging
 
@@ -13,9 +15,9 @@ from homeassistant.const import (
     CONF_NAME,
     CONF_TOKEN,
     URL_API,
-    Platform,
+    Platform, CONF_USERNAME, CONF_PASSWORD,
 )
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceEntryType
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
@@ -25,6 +27,7 @@ from .tuya_api import TuyaApi
 
 PLATFORMS: list[Platform] = [Platform.SWITCH, Platform.SELECT, Platform.NUMBER]
 _LOGGER = logging.getLogger(__name__)
+# TUYA_LOGGER.setLevel(logging.DEBUG)
 
 
 async def async_setup(
@@ -44,19 +47,42 @@ async def async_setup_entry(
     _LOGGER.info(f"Setting up {config_entry.unique_id=} ", )
 
     hass.data.setdefault(DOMAIN, {})
-    hass.data[DOMAIN][config_entry.entry_id] = {
-        UPDATER: DataUpdater(
+    updater = DataUpdater(
             hass=hass,
             logger=_LOGGER,
             name=f"{DOMAIN}_updater",
             config_entry=config_entry,
-        ),
+    )
+    hass.data[DOMAIN][config_entry.entry_id] = {
+        UPDATER: updater,
         UPDATE_LISTENER: config_entry.add_update_listener(async_update_options)
     }
+    hass.data[DOMAIN][config_entry.entry_id][UPDATER]: DataUpdater
 
-    await hass.data[DOMAIN][config_entry.entry_id][UPDATER].async_config_entry_first_refresh()
+    # await updater.async_config_entry_first_refresh()
     hass.config_entries.async_setup_platforms(config_entry, PLATFORMS)
 
+    config = dict(config_entry.data)
+    config.update(config_entry.options)
+
+    tuya_api_instance = TuyaOpenAPI(
+        endpoint=f"https://{config[URL_API]}",
+        access_id=config[CONF_ID],
+        access_secret=config[CONF_TOKEN],
+        auth_type=AuthType.SMART_HOME,
+    )
+    response = await hass.async_add_executor_job(
+        tuya_api_instance.connect,
+        config[CONF_USERNAME],
+        config[CONF_PASSWORD],
+        "RU",
+        "smartlife",
+    )
+
+    if response.get("success", False) is False:
+        raise ConfigEntryNotReady(response)
+
+    updater.setup_mq(tuya_api_instance)
     return True
 
 
@@ -90,7 +116,7 @@ class DataUpdater(DataUpdateCoordinator):
         config_entry: ConfigEntry,
     ):
         """Initialize updater."""
-        super().__init__(hass, logger, name=name, update_interval=timedelta(seconds=10))
+        super().__init__(hass, logger, name=name)
 
         self._config_entry = config_entry
         self.tuya = TuyaApi(
@@ -98,6 +124,7 @@ class DataUpdater(DataUpdateCoordinator):
             secret=self.config[CONF_TOKEN],
             server=self.config[URL_API],
         )
+        self.data = self._async_update_data()
 
     @cached_property
     def config(self) -> dict:
@@ -120,3 +147,27 @@ class DataUpdater(DataUpdateCoordinator):
             manufacturer="Tuya",
             name=self.config[CONF_NAME],
         )
+
+    @callback
+    def on_message(self, msg):
+        _msg = {
+            'data': {
+                'dataId': '54572faf-4c51-40e2-a2de-849ca075df49',
+                'devId': 'bf8ae7a397ff27335eoxaj',
+                'productKey': 'abzzvtulukkwzynv',
+                'status': [
+                    {'1': True, 'code': 'switch', 't': '1656947179', 'value': True}
+                ]
+            },
+            'protocol': 4,
+            'pv': '2.0',
+            'sign': '125bf4fc214f55e349198cbfecdffa58',
+            't': 1656947179,
+        }
+
+        _LOGGER.debug(f"{msg=}")
+
+    def setup_mq(self, api: TuyaOpenAPI):
+        tuya_mq = TuyaOpenMQ(api)
+        # tuya_mq.start()
+        tuya_mq.add_message_listener(self.on_message)

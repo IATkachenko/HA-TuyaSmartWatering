@@ -7,7 +7,7 @@ from functools import cached_property
 from typing import Any
 
 from homeassistant import config_entries
-from homeassistant.const import CONF_NAME, CONF_ID, CONF_TOKEN, CONF_DEVICE, URL_API
+from homeassistant.const import CONF_NAME, CONF_ID, CONF_TOKEN, CONF_DEVICE, URL_API, CONF_USERNAME, CONF_PASSWORD
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
 import voluptuous as vol
@@ -62,7 +62,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             vol.Required(CONF_ID): str,
             vol.Required(CONF_TOKEN): str,
             vol.Required(CONF_DEVICE): str,
-            vol.Required(URL_API): str
+            vol.Required(URL_API): str,
+            vol.Required(CONF_USERNAME): str,
+            vol.Required(CONF_PASSWORD): str,
         })
         return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
 
@@ -91,7 +93,9 @@ class OptionsFlow(config_entries.OptionsFlow):
             vol.Required(CONF_ID, default=self.config.get(CONF_ID)): str,
             vol.Required(CONF_TOKEN, default=self.config.get(CONF_TOKEN)): str,
             vol.Required(CONF_DEVICE, default=self.config.get(CONF_DEVICE)): str,
-            vol.Required(URL_API, default=self.config.get(URL_API)): str
+            vol.Required(URL_API, default=self.config.get(URL_API)): str,
+            vol.Required(CONF_USERNAME, default=self.config.get(CONF_USERNAME)): str,
+            vol.Required(CONF_PASSWORD, default=self.config.get(CONF_PASSWORD)): str,
         })
         return self.async_show_form(
             step_id="init",
