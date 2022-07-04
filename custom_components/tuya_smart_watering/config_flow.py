@@ -6,7 +6,7 @@ import logging
 from typing import Any
 
 from homeassistant import config_entries
-from homeassistant.const import CONF_NAME
+from homeassistant.const import CONF_NAME, CONF_ID, CONF_TOKEN, CONF_DEVICE
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
 import voluptuous as vol
@@ -27,6 +27,7 @@ def get_value(
     :returns: parameter value, or default value or None
     """
     if config_entry is not None:
+        config_entry: config_entries
         return config_entry.options.get(param, config_entry.data.get(param, default))
 
     return default
@@ -55,7 +56,12 @@ class ConfigFlow(config_entries.ConfigFlow):
         if user_input is not None:
             return self.async_create_entry(title=user_input[CONF_NAME], data=user_input)
 
-        schema = vol.Schema({})
+        schema = vol.Schema({
+            vol.Required(CONF_NAME): str,
+            vol.Required(CONF_ID): str,
+            vol.Required(CONF_TOKEN): str,
+            vol.Required(CONF_DEVICE): str,
+        })
         return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
 
 
@@ -71,7 +77,12 @@ class OptionsFlow(config_entries.OptionsFlow):
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
-        schema = vol.Schema({})
+        schema = vol.Schema({
+            vol.Required(CONF_NAME): str,
+            vol.Required(CONF_ID): str,
+            vol.Required(CONF_TOKEN): str,
+            vol.Required(CONF_DEVICE): str,
+        })
         return self.async_show_form(
             step_id="init",
             data_schema=schema,

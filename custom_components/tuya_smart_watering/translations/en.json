@@ -1,11 +1,15 @@
 {
-  "title": "<Integration Name>",
+  "title": "Tuya Smart Watering",
   "options": {
     "step": {
       "init": {
-        "title": "<Integration Name> settings",
-        "description": "Settings for <Integration Name> integration.",
+        "title": "Tuya Smart Watering settings",
+        "description": "Settings for Tuya Smart Watering integration.",
         "data": {
+          "device": "Device ID",
+          "id": "Account ID",
+          "name": "Name for device",
+          "token": "Account token"
         }
       }
     }
@@ -13,9 +17,13 @@
   "config": {
     "step": {
       "user": {
-        "title": "<Integration Name> settings",
-        "description": "Settings for <Integration Name> integration.",
+        "title": "Tuya Smart Watering settings",
+        "description": "Settings for Tuya Smart Watering integration.",
         "data": {
+          "device": "Device ID",
+          "id": "Account ID",
+          "name": "Name for device",
+          "token": "Account token"
         }
       }
     }
