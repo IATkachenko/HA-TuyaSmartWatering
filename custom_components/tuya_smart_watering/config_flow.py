@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import logging
+from functools import cached_property
 from typing import Any
 
 from homeassistant import config_entries
-from homeassistant.const import CONF_NAME, CONF_ID, CONF_TOKEN, CONF_DEVICE
+from homeassistant.const import CONF_NAME, CONF_ID, CONF_TOKEN, CONF_DEVICE, URL_API
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
 import voluptuous as vol
@@ -61,6 +62,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             vol.Required(CONF_ID): str,
             vol.Required(CONF_TOKEN): str,
             vol.Required(CONF_DEVICE): str,
+            vol.Required(URL_API): str
         })
         return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
 
@@ -72,16 +74,24 @@ class OptionsFlow(config_entries.OptionsFlow):
         """Initialize options flow."""
         self.config_entry = config_entry
 
+    @cached_property
+    def config(self) -> dict:
+        """Return the configuration."""
+        config = dict(self.config_entry.data)
+        config.update(self.config_entry.options)
+        return config
+
     async def async_step_init(self, user_input: dict | None = None) -> FlowResult:
         """Manage the options."""
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
         schema = vol.Schema({
-            vol.Required(CONF_NAME): str,
-            vol.Required(CONF_ID): str,
-            vol.Required(CONF_TOKEN): str,
-            vol.Required(CONF_DEVICE): str,
+            vol.Required(CONF_NAME, default=self.config.get(CONF_NAME)): str,
+            vol.Required(CONF_ID, default=self.config.get(CONF_ID)): str,
+            vol.Required(CONF_TOKEN, default=self.config.get(CONF_TOKEN)): str,
+            vol.Required(CONF_DEVICE, default=self.config.get(CONF_DEVICE)): str,
+            vol.Required(URL_API, default=self.config.get(URL_API)): str
         })
         return self.async_show_form(
             step_id="init",
