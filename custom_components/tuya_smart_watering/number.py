@@ -22,7 +22,7 @@ _LOGGER = logging.getLogger(__name__)
 NUMBERS: tuple[NumberEntityDescription, ...] = (
     NumberEntityDescription(
         key=DATA_COOLDOWN,
-        name="Coldown",
+        name="Cooldown",
         device_class="",
         entity_registry_enabled_default=True,
     ),
