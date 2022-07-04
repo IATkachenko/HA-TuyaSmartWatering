@@ -33,8 +33,7 @@ def get_value(
     return default
 
 
-@config_entries.HANDLERS.register(DOMAIN)
-class ConfigFlow(config_entries.ConfigFlow):
+class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """First time set up flow."""
 
     VERSION = 1
@@ -54,6 +53,7 @@ class ConfigFlow(config_entries.ConfigFlow):
         errors: dict[str, str] = {}
 
         if user_input is not None:
+            await self.async_set_unique_id(user_input[CONF_DEVICE])
             return self.async_create_entry(title=user_input[CONF_NAME], data=user_input)
 
         schema = vol.Schema({
