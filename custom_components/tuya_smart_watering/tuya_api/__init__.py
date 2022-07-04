@@ -1,7 +1,7 @@
 """API for Tuya services."""
 
 from datetime import datetime
-from functools import cache
+from functools import cache, cached_property
 import json
 import logging
 from typing import Literal
@@ -18,6 +18,7 @@ class TuyaApi:
     """Main class for interact with Tuya services."""
 
     __token_expire: float
+    _schema: dict
 
     def __init__(self, client_id: str, secret: str, server: str):
         """Initialize API."""
@@ -29,6 +30,7 @@ class TuyaApi:
         self.__token_expire = 0
 
         self._timeout = aiohttp.ClientTimeout(total=20)
+        self._schema = {}
 
     def headers(
         self,
@@ -116,6 +118,9 @@ class TuyaApi:
     async def status(self, device_id: str):
         """Get status of device."""
 
+        if self._schema == {}:
+            self._schema = await self._update_schema(device_id=device_id)
+
         async with aiohttp.ClientSession(timeout=self._timeout) as session:
             r = self.map_code_value(
                 await self.request(
@@ -125,14 +130,19 @@ class TuyaApi:
                     access_token=(await self._access_token()),
                 )
             )
-        return {
+        result = {
             DATA_SWITCH: r["switch"],
             DATA_MODE: r["mode"],
             DATA_COOLDOWN: r["temp_set"],
         }
+        _LOGGER.debug(f"status is {result}")
+        return result
 
-    @cache
-    async def schema(self, device_id: str):
+    @property
+    def schema(self) -> dict:
+        return self._schema
+
+    async def _update_schema(self, device_id: str):
         """Device data schema layout."""
         async with aiohttp.ClientSession(timeout=self._timeout) as session:
             return (

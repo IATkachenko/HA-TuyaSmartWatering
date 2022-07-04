@@ -16,7 +16,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import DataUpdater
-from .const import DATA_SWITCH, DOMAIN, UPDATE_LISTENER
+from .const import DATA_SWITCH, DOMAIN, UPDATER
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -37,7 +37,7 @@ async def async_setup_entry(
 ) -> None:
     """Set up weather "Yandex.Weather" sensor entry."""
     domain_data = hass.data[DOMAIN][config_entry.entry_id]
-    updater = domain_data[UPDATE_LISTENER]
+    updater = domain_data[UPDATER]
 
     entities: list[TuyaSmartWateringSwitch] = [
         TuyaSmartWateringSwitch(
@@ -74,3 +74,4 @@ class TuyaSmartWateringSwitch(SwitchEntity, CoordinatorEntity):
 
     def _handle_coordinator_update(self) -> None:
         self._attr_is_on = self.coordinator.data.get(self.entity_description.key)
+        self.async_write_ha_state()

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from functools import cached_property
 import logging
 
@@ -19,7 +20,7 @@ from homeassistant.helpers.device_registry import DeviceEntryType
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from .const import DOMAIN, UPDATE_LISTENER
+from .const import DOMAIN, UPDATE_LISTENER, UPDATER
 from .tuya_api import TuyaApi
 
 PLATFORMS: list[Platform] = [Platform.SWITCH, Platform.SELECT, Platform.NUMBER]
@@ -37,24 +38,26 @@ async def async_setup(
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
-) -> None:
+) -> bool:
     """Set up Integration Name entry."""
 
-    _LOGGER.info("Setting up %s ", config_entry.unique_id)
+    _LOGGER.info(f"Setting up {config_entry.unique_id=} ", )
 
     hass.data.setdefault(DOMAIN, {})
-    hass.data[DOMAIN][config_entry.unique_id] = DataUpdater(
-        hass=hass,
-        logger=_LOGGER,
-        name=f"{DOMAIN}_updater",
-        config_entry=config_entry,
-    )
+    hass.data[DOMAIN][config_entry.entry_id] = {
+        UPDATER: DataUpdater(
+            hass=hass,
+            logger=_LOGGER,
+            name=f"{DOMAIN}_updater",
+            config_entry=config_entry,
+        ),
+        UPDATE_LISTENER: config_entry.add_update_listener(async_update_options)
+    }
 
-    await hass.data[DOMAIN][config_entry.unique_id].async_config_entry_first_refresh()
+    await hass.data[DOMAIN][config_entry.entry_id][UPDATER].async_config_entry_first_refresh()
     hass.config_entries.async_setup_platforms(config_entry, PLATFORMS)
 
-    update_listener = config_entry.add_update_listener(async_update_options)
-    hass.data[DOMAIN][config_entry.entry_id][UPDATE_LISTENER] = update_listener
+    return True
 
 
 async def async_update_options(hass: HomeAssistant, config_entry: ConfigEntry) -> None:
@@ -87,7 +90,8 @@ class DataUpdater(DataUpdateCoordinator):
         config_entry: ConfigEntry,
     ):
         """Initialize updater."""
-        super().__init__(hass, logger, name=name)
+        super().__init__(hass, logger, name=name, update_interval=timedelta(seconds=10))
+
         self._config_entry = config_entry
         self.tuya = TuyaApi(
             client_id=self.config[CONF_ID],

@@ -2,24 +2,24 @@
 
 from __future__ import annotations
 
+import json
 import logging
 
 from homeassistant.components.select import SelectEntity, SelectEntityDescription
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_DEVICE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import DataUpdater
-from .const import DATA_MODE, DOMAIN, UPDATE_LISTENER
+from .const import DATA_MODE, DOMAIN, UPDATER
 
 _LOGGER = logging.getLogger(__name__)
 
 SELECTS: tuple[SelectEntityDescription, ...] = (
     SelectEntityDescription(
         key=DATA_MODE,
-        name="State",
+        name="Mode",
         device_class="",
         entity_registry_enabled_default=True,
     ),
@@ -33,7 +33,7 @@ async def async_setup_entry(
 ) -> None:
     """Set up weather "Yandex.Weather" sensor entry."""
     domain_data = hass.data[DOMAIN][config_entry.entry_id]
-    updater = domain_data[UPDATE_LISTENER]
+    updater = domain_data[UPDATER]
 
     entities: list[TuyaSmartWateringSelect] = [
         TuyaSmartWateringSelect(
@@ -64,12 +64,15 @@ class TuyaSmartWateringSelect(SelectEntity, CoordinatorEntity):
         self._attr_unique_id = unique_id
         self._attr_device_info = self.coordinator.device_info
         self._attr_options = []
-        for i in self.coordinator.tuya.schema(self.coordinator.config[CONF_DEVICE]):
+        self._attr_current_option = None
+        for i in self.coordinator.tuya.schema:
             if i["code"] == self.entity_description.key:
-                self._attr_options = i["values"]["range"]
+                _LOGGER.debug(f"select init: {i=}")
+                self._attr_options = json.loads(i["values"])["range"]
                 break
 
     def _handle_coordinator_update(self) -> None:
         self._attr_current_option = self.coordinator.data.get(
             self.entity_description.key
         )
+        self.async_write_ha_state()
