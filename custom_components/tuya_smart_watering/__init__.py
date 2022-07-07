@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import json
 from asyncio import Future
 
@@ -80,6 +81,7 @@ async def async_setup_entry(
     }
 
     updater.setup_mq(tuya_api_instance)
+    await updater.async_config_entry_first_refresh()
     hass.config_entries.async_setup_platforms(config_entry, PLATFORMS)
     return True
 
@@ -115,7 +117,7 @@ class DataUpdater(DataUpdateCoordinator):
         api: TuyaOpenAPI
     ):
         """Initialize updater."""
-        super().__init__(hass, logger, name=name)
+        super().__init__(hass, logger, name=name, update_interval=datetime.timedelta(minutes=30))
 
         self._config_entry = config_entry
         self._api = api
@@ -127,33 +129,40 @@ class DataUpdater(DataUpdateCoordinator):
             f"/v1.0/iot-03/devices/{self.config[CONF_DEVICE]}/specification"
         ).add_done_callback(self.set_specification)
 
-        hass.async_add_executor_job(
+    async def _async_update_data(self) -> _T:
+        self._update()
+
+    def _update(self):
+        self.hass.async_add_executor_job(
             self._api.get,
             f"/v1.0/iot-03/devices/{self.config[CONF_DEVICE]}/status",
-        ).add_done_callback(self.set_initial_data)
+        ).add_done_callback(self.set_data)
 
-        hass.async_add_executor_job(
+        self.hass.async_add_executor_job(
             self._api.get,
             f"/v1.1/iot-03/devices/{self.config[CONF_DEVICE]}",
-        ).add_done_callback(self.set_initial_state)
+        ).add_done_callback(self.set_state)
 
-    def set_initial_state(self, state: Future):
+    def set_state(self, state: Future):
+        data = self.data or {}
         state = state.result()
+
         try:
-            self.data[DATA_ONLINE] = state["result"]["online"]
-            self.async_set_updated_data(self.data)
+            data[DATA_ONLINE] = state["result"]["online"]
+            self.async_set_updated_data(data)
         except KeyError:
             _LOGGER.critical(f"KeyError in set_initial_state with {state=}")
 
     def set_specification(self, specification: Future):
         self._specification = specification.result()["result"]["status"]
 
-    def set_initial_data(self, data: Future):
+    def set_data(self, data: Future):
         mapped_data = {}
+        initial_data = self.data or {}
         data = data.result()["result"]
         for element in data:
             mapped_data[element["code"]] = element["value"]
-        initial_data = self.data
+
         result = {
             DATA_SWITCH: mapped_data["switch"],
             DATA_MODE: mapped_data["mode"],
@@ -161,8 +170,7 @@ class DataUpdater(DataUpdateCoordinator):
             DATA_PUMP: None,
         }
 
-        new_data = {**initial_data, **result}
-        self.async_set_updated_data(new_data)
+        self.async_set_updated_data({**initial_data, **result})
 
     @property
     def specification(self) -> dict:
@@ -233,7 +241,11 @@ class DataUpdater(DataUpdateCoordinator):
 
     def set_pump(self, pump: str):
         _LOGGER.debug(f"Need set {pump=}.")
-        self.send_commands(json.dumps([{"28": pump}]))
+        self.hass.async_add_executor_job(
+            self._api.post,
+            f"/v1.0/iot-03/devices/{self.config[CONF_DEVICE]}/capabilities/level",
+            {"value": pump},
+        )
 
     def set_mode(self, mode: str):
         _LOGGER.debug(f"Need set {mode=}.")
