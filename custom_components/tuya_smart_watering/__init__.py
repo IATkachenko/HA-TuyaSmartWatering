@@ -160,8 +160,9 @@ class DataUpdater(DataUpdateCoordinator):
             self._api.get,
             f"/v1.0/iot-03/devices/{self.config[CONF_DEVICE]}/capabilities/ClockTime"
         ).add_done_callback(self.set_cooldown_state)
-        _LOGGER.debug(f"_update done")
-        return self.data
+        _LOGGER.debug(f"_update done {self.data=}")
+
+        return self.data.copy()
 
     def set_cooldown_state(self, state: Future):
         initial_data = self.data or {}
