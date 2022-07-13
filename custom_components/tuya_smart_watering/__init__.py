@@ -122,7 +122,10 @@ class DataUpdater(DataUpdateCoordinator):
         self._config_entry = config_entry
         self._api = api
         self._specification = {}
-        self.data = {}
+        self.data = {
+            DATA_PUMP: None,
+            DATA_COOLDOWN: 0,
+        }
 
         hass.async_add_executor_job(
             self._api.get,
@@ -143,13 +146,43 @@ class DataUpdater(DataUpdateCoordinator):
             f"/v1.1/iot-03/devices/{self.config[CONF_DEVICE]}",
         ).add_done_callback(self.set_state)
 
+        self.hass.async_add_executor_job(
+            self._api.get,
+            f"/v1.0/iot-03/devices/{self.config[CONF_DEVICE]}/capabilities/level"
+        ).add_done_callback(self.set_pump_state)
+
+        self.hass.async_add_executor_job(
+            self._api.get,
+            f"/v1.0/iot-03/devices/{self.config[CONF_DEVICE]}/capabilities/ClockTime"
+        ).add_done_callback(self.set_cooldown_state)
+
+    def set_cooldown_state(self, state: Future):
+        initial_data = self.data or {}
+        state = state.result()
+        _LOGGER.debug(f"{state=}")
+        try:
+            result = {DATA_COOLDOWN: state["result"][0]["value"]}
+            self.async_set_updated_data({**initial_data, **result})
+        except KeyError:
+            _LOGGER.critical(f"KeyError in set_initial_state with {state=}")
+
+    def set_pump_state(self, state: Future):
+        initial_data = self.data or {}
+        state = state.result()
+        _LOGGER.debug(f"{state=}")
+        try:
+            result = {DATA_PUMP: state["result"][0]["value"]}
+            self.async_set_updated_data({**initial_data, **result})
+        except KeyError:
+            _LOGGER.critical(f"KeyError in set_initial_state with {state=}")
+
     def set_state(self, state: Future):
-        data = self.data or {}
+        initial_data = self.data or {}
         state = state.result()
 
         try:
-            data[DATA_ONLINE] = state["result"]["online"]
-            self.async_set_updated_data(data)
+            result = {DATA_ONLINE: state["result"]["online"]}
+            self.async_set_updated_data({**initial_data, **result})
         except KeyError:
             _LOGGER.critical(f"KeyError in set_initial_state with {state=}")
 
@@ -166,8 +199,6 @@ class DataUpdater(DataUpdateCoordinator):
         result = {
             DATA_SWITCH: mapped_data["switch"],
             DATA_MODE: mapped_data["mode"],
-            DATA_COOLDOWN: mapped_data["temp_set"],
-            DATA_PUMP: None,
         }
 
         self.async_set_updated_data({**initial_data, **result})
@@ -225,8 +256,12 @@ class DataUpdater(DataUpdateCoordinator):
                         _LOGGER.warning(f"Unknown code! {status=}")
                 except KeyError:
                     status: dict
-                    if "56" in status.keys():
-                        data[DATA_COOLDOWN] = status["56"]
+                    # cooldown_codes = ["56", "102"]
+                    cooldown_codes = ["102"]
+                    for i in cooldown_codes:
+                        if i in status.keys():
+                            data[DATA_COOLDOWN] = status[i]
+
                     if "28" in status.keys():
                         data[DATA_PUMP] = status["28"]
         except KeyError:
@@ -262,7 +297,10 @@ class DataUpdater(DataUpdateCoordinator):
     def set_cooldown(self, cooldown: float):
         cooldown = int(cooldown)
         _LOGGER.debug(f"Need set {cooldown=}.")
-        self.send_commands(json.dumps([{"code": "temp_set", "value": cooldown}]))
+        self.hass.async_add_executor_job(
+            self._api.post,
+            f"/v1.0/iot-03/devices/{self.config[CONF_DEVICE]}/capabilities/runtime", {"value": cooldown},
+        )
 
     def send_commands(self, commands: str):
         _LOGGER.debug(f"Sending {commands=}")

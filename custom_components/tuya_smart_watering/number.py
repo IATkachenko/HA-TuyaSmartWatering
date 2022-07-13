@@ -81,7 +81,7 @@ class TuyaSmartWateringNumber(NumberEntity, CoordinatorEntity):
         self._handle_coordinator_update()
 
     def _handle_coordinator_update(self) -> None:
-        self._attr_value = float(self.coordinator.data.get(self.entity_description.key))
+        self._attr_value = float(self.coordinator.data.get(self.entity_description.key) or 0)
         self.async_write_ha_state()
 
     @property
