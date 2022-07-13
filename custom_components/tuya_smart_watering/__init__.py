@@ -117,7 +117,13 @@ class DataUpdater(DataUpdateCoordinator):
         api: TuyaOpenAPI
     ):
         """Initialize updater."""
-        super().__init__(hass, logger, name=name, update_interval=datetime.timedelta(minutes=30))
+        super().__init__(
+            hass=hass,
+            logger=logger,
+            name=name,
+            update_interval=datetime.timedelta(minutes=30),
+            update_method=self._update
+        )
 
         self._config_entry = config_entry
         self._api = api
@@ -132,10 +138,9 @@ class DataUpdater(DataUpdateCoordinator):
             f"/v1.0/iot-03/devices/{self.config[CONF_DEVICE]}/specification"
         ).add_done_callback(self.set_specification)
 
-    async def _async_update_data(self) -> _T:
-        self._update()
-
-    def _update(self):
+    async def _update(self):
+        _LOGGER.debug(f"starting _update")
+        wait_for: list[Future] = []
         self.hass.async_add_executor_job(
             self._api.get,
             f"/v1.0/iot-03/devices/{self.config[CONF_DEVICE]}/status",
@@ -155,6 +160,8 @@ class DataUpdater(DataUpdateCoordinator):
             self._api.get,
             f"/v1.0/iot-03/devices/{self.config[CONF_DEVICE]}/capabilities/ClockTime"
         ).add_done_callback(self.set_cooldown_state)
+        _LOGGER.debug(f"_update done")
+        return self.data
 
     def set_cooldown_state(self, state: Future):
         initial_data = self.data or {}
